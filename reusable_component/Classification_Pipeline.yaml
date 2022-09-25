@@ -1,0 +1,160 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: diabetes-classification-pipeline-
+  annotations: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.14, pipelines.kubeflow.org/pipeline_compilation_time: '2022-09-25T09:56:27.155274',
+    pipelines.kubeflow.org/pipeline_spec: '{"description": "Diabetes Classification
+      Project.", "name": "Diabetes Classification Pipeline"}'}
+  labels: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.14}
+spec:
+  entrypoint: diabetes-classification-pipeline
+  templates:
+  - name: diabetes-classification-pipeline
+    dag:
+      tasks:
+      - name: ingest-data
+        template: ingest-data
+        dependencies: [persistent-volume-claim]
+        arguments:
+          parameters:
+          - {name: persistent-volume-claim-name, value: '{{tasks.persistent-volume-claim.outputs.parameters.persistent-volume-claim-name}}'}
+      - name: model-evaluation
+        template: model-evaluation
+        dependencies: [model-testing, persistent-volume-claim]
+        arguments:
+          parameters:
+          - {name: persistent-volume-claim-name, value: '{{tasks.persistent-volume-claim.outputs.parameters.persistent-volume-claim-name}}'}
+      - name: model-testing
+        template: model-testing
+        dependencies: [model-training, persistent-volume-claim]
+        arguments:
+          parameters:
+          - {name: persistent-volume-claim-name, value: '{{tasks.persistent-volume-claim.outputs.parameters.persistent-volume-claim-name}}'}
+      - name: model-training
+        template: model-training
+        dependencies: [persistent-volume-claim, preprocess-data]
+        arguments:
+          parameters:
+          - {name: persistent-volume-claim-name, value: '{{tasks.persistent-volume-claim.outputs.parameters.persistent-volume-claim-name}}'}
+      - {name: persistent-volume-claim, template: persistent-volume-claim}
+      - name: preprocess-data
+        template: preprocess-data
+        dependencies: [ingest-data, persistent-volume-claim]
+        arguments:
+          parameters:
+          - {name: persistent-volume-claim-name, value: '{{tasks.persistent-volume-claim.outputs.parameters.persistent-volume-claim-name}}'}
+  - name: ingest-data
+    container:
+      command: [python, data_loading.py]
+      image: arinze02/data_download:latest
+      volumeMounts:
+      - {mountPath: /pvc_data, name: persistent-volume-claim}
+    inputs:
+      parameters:
+      - {name: persistent-volume-claim-name}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+    volumes:
+    - name: persistent-volume-claim
+      persistentVolumeClaim: {claimName: '{{inputs.parameters.persistent-volume-claim-name}}'}
+  - name: model-evaluation
+    container:
+      command: [python, model_evaluation.py]
+      image: arinze02/model_evaluation:latest
+      volumeMounts:
+      - {mountPath: /pvc_data, name: persistent-volume-claim}
+    inputs:
+      parameters:
+      - {name: persistent-volume-claim-name}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+    volumes:
+    - name: persistent-volume-claim
+      persistentVolumeClaim: {claimName: '{{inputs.parameters.persistent-volume-claim-name}}'}
+  - name: model-testing
+    container:
+      command: [python, model_testing.py]
+      image: arinze02/model_test:latest
+      volumeMounts:
+      - {mountPath: /pvc_data, name: persistent-volume-claim}
+    inputs:
+      parameters:
+      - {name: persistent-volume-claim-name}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+    volumes:
+    - name: persistent-volume-claim
+      persistentVolumeClaim: {claimName: '{{inputs.parameters.persistent-volume-claim-name}}'}
+  - name: model-training
+    container:
+      command: [python, data_modelling.py]
+      image: arinze02/model_train:latest
+      volumeMounts:
+      - {mountPath: /pvc_data, name: persistent-volume-claim}
+    inputs:
+      parameters:
+      - {name: persistent-volume-claim-name}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+    volumes:
+    - name: persistent-volume-claim
+      persistentVolumeClaim: {claimName: '{{inputs.parameters.persistent-volume-claim-name}}'}
+  - name: persistent-volume-claim
+    resource:
+      action: create
+      manifest: |
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        metadata:
+          name: '{{workflow.name}}-data-volume'
+        spec:
+          accessModes:
+          - ReadWriteOnce
+          resources:
+            requests:
+              storage: 2Gi
+    outputs:
+      parameters:
+      - name: persistent-volume-claim-manifest
+        valueFrom: {jsonPath: '{}'}
+      - name: persistent-volume-claim-name
+        valueFrom: {jsonPath: '{.metadata.name}'}
+      - name: persistent-volume-claim-size
+        valueFrom: {jsonPath: '{.status.capacity.storage}'}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+  - name: preprocess-data
+    container:
+      command: [python, data_preprocessing.py]
+      image: arinze02/data_preprocess:latest
+      volumeMounts:
+      - {mountPath: /pvc_data, name: persistent-volume-claim}
+    inputs:
+      parameters:
+      - {name: persistent-volume-claim-name}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+    volumes:
+    - name: persistent-volume-claim
+      persistentVolumeClaim: {claimName: '{{inputs.parameters.persistent-volume-claim-name}}'}
+  arguments:
+    parameters: []
+  serviceAccountName: pipeline-runner

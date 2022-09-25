@@ -1,0 +1,546 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: dibetes-pipeline-lightweight-
+  annotations: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.14, pipelines.kubeflow.org/pipeline_compilation_time: '2022-09-25T17:13:06.699175',
+    pipelines.kubeflow.org/pipeline_spec: '{"description": "Performs preprocessing,
+      training, testing and prediction if a patient is diabetic or not", "name": "Dibetes
+      Pipeline Lightweight"}'}
+  labels: {pipelines.kubeflow.org/kfp_sdk_version: 1.8.14}
+spec:
+  entrypoint: dibetes-pipeline-lightweight
+  templates:
+  - name: data-loading
+    container:
+      args: [--data-path, /Users/user/Documents/code/lightweight_component]
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'pandas' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet
+        --no-warn-script-location 'pandas' --user) && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def data_loading(data_path):
+            '''
+            Function for loading diabetes dataset
+            '''
+
+            import os
+            import argparse
+            import pandas as pd
+            import pickle
+            #reading the data from its source
+            data = pd.read_csv("https://raw.githubusercontent.com/Youngprof3/kubeflow_test/main/project_on_diabetes_kubeflow/data_loading/dataset.csv")
+             #Save the data as a pickle file to be used by the preprocess component.
+            with open(f'{data_path}/working_data.pkl', 'wb') as f:
+                pickle.dump(data, f)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Data loading', description='Function for loading diabetes dataset')
+        _parser.add_argument("--data-path", dest="data_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = data_loading(**_parsed_args)
+      image: python:3.10.4-slim-buster
+      volumeMounts:
+      - {mountPath: /Users/user/Documents/code/lightweight_component, name: persistent-volume-claim}
+    inputs:
+      parameters:
+      - {name: persistent-volume-claim-name}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"description": "Function
+          for loading diabetes dataset", "implementation": {"container": {"args":
+          ["--data-path", {"inputValue": "data_path"}], "command": ["sh", "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1
+          python3 -m pip install --quiet --no-warn-script-location ''pandas'' || PIP_DISABLE_PIP_VERSION_CHECK=1
+          python3 -m pip install --quiet --no-warn-script-location ''pandas'' --user)
+          && \"$0\" \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf \"%s\" \"$0\"
+          > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n", "def data_loading(data_path):\n    ''''''\n    Function
+          for loading diabetes dataset\n    ''''''\n\n    import os\n    import argparse\n    import
+          pandas as pd\n    import pickle\n    #reading the data from its source\n    data
+          = pd.read_csv(\"https://raw.githubusercontent.com/Youngprof3/kubeflow_test/main/project_on_diabetes_kubeflow/data_loading/dataset.csv\")\n     #Save
+          the data as a pickle file to be used by the preprocess component.\n    with
+          open(f''{data_path}/working_data.pkl'', ''wb'') as f:\n        pickle.dump(data,
+          f)\n\nimport argparse\n_parser = argparse.ArgumentParser(prog=''Data loading'',
+          description=''Function for loading diabetes dataset'')\n_parser.add_argument(\"--data-path\",
+          dest=\"data_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parsed_args
+          = vars(_parser.parse_args())\n\n_outputs = data_loading(**_parsed_args)\n"],
+          "image": "python:3.10.4-slim-buster"}}, "inputs": [{"name": "data_path"}],
+          "name": "Data loading"}', pipelines.kubeflow.org/component_ref: '{}', pipelines.kubeflow.org/arguments.parameters: '{"data_path":
+          "/Users/user/Documents/code/lightweight_component"}'}
+    volumes:
+    - name: persistent-volume-claim
+      persistentVolumeClaim: {claimName: '{{inputs.parameters.persistent-volume-claim-name}}'}
+  - name: data-preprocessing
+    container:
+      args: [--data-path, /Users/user/Documents/code/lightweight_component]
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'pandas' 'sklearn' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install
+        --quiet --no-warn-script-location 'pandas' 'sklearn' --user) && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def data_preprocessing(data_path):
+
+            import pandas as pd
+            import argparse
+            import numpy as np
+            import pickle
+            from sklearn.preprocessing import MinMaxScaler, Normalizer
+            from sklearn.model_selection import train_test_split
+            from sklearn.preprocessing import LabelEncoder
+
+            with open(f'{data_path}/working_data.pkl', 'rb') as f:
+                data = pickle.load(f)
+                #data features
+                X = data.iloc[:,:-1]
+                #target data
+                y = data.iloc[:,-1:]
+                #encoding the categorical columns
+                le = LabelEncoder()
+
+                X['gender'] = le.fit_transform(X['gender'])
+                y['class'] = le.fit_transform(y['class'])
+
+                #splitting the data
+                X_train,X_test,y_train,y_test = train_test_split( X,y, test_size=0.3, random_state = 42)
+                #feature scaling
+                ms =MinMaxScaler(feature_range=(0,1))
+                X_train = ms.fit_transform(X_train)
+                X_test = ms.transform(X_test)
+
+                #Save the train_data as a pickle file to be used by the train component.
+                with open(f'{data_path}/train_data.pkl', 'wb') as f:
+                    pickle.dump((X_train,  y_train), f)
+
+                #Save the test_data as a pickle file to be used by the predict component.
+                with open(f'{data_path}/test_data.pkl', 'wb') as f:
+                    pickle.dump((X_test,  y_test), f)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Data preprocessing', description='')
+        _parser.add_argument("--data-path", dest="data_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = data_preprocessing(**_parsed_args)
+      image: python:3.10.4-slim-buster
+      volumeMounts:
+      - {mountPath: /Users/user/Documents/code/lightweight_component, name: persistent-volume-claim}
+    inputs:
+      parameters:
+      - {name: persistent-volume-claim-name}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--data-path", {"inputValue": "data_path"}], "command": ["sh",
+          "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+          ''pandas'' ''sklearn'' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip
+          install --quiet --no-warn-script-location ''pandas'' ''sklearn'' --user)
+          && \"$0\" \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf \"%s\" \"$0\"
+          > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n", "def data_preprocessing(data_path):\n\n    import
+          pandas as pd\n    import argparse\n    import numpy as np\n    import pickle\n    from
+          sklearn.preprocessing import MinMaxScaler, Normalizer\n    from sklearn.model_selection
+          import train_test_split\n    from sklearn.preprocessing import LabelEncoder\n\n    with
+          open(f''{data_path}/working_data.pkl'', ''rb'') as f:\n        data = pickle.load(f)\n        #data
+          features\n        X = data.iloc[:,:-1]\n        #target data\n        y
+          = data.iloc[:,-1:]\n        #encoding the categorical columns\n        le
+          = LabelEncoder()\n\n        X[''gender''] = le.fit_transform(X[''gender''])\n        y[''class'']
+          = le.fit_transform(y[''class''])\n\n        #splitting the data\n        X_train,X_test,y_train,y_test
+          = train_test_split( X,y, test_size=0.3, random_state = 42)\n        #feature
+          scaling\n        ms =MinMaxScaler(feature_range=(0,1))\n        X_train
+          = ms.fit_transform(X_train)\n        X_test = ms.transform(X_test)\n\n        #Save
+          the train_data as a pickle file to be used by the train component.\n        with
+          open(f''{data_path}/train_data.pkl'', ''wb'') as f:\n            pickle.dump((X_train,  y_train),
+          f)\n\n        #Save the test_data as a pickle file to be used by the predict
+          component.\n        with open(f''{data_path}/test_data.pkl'', ''wb'') as
+          f:\n            pickle.dump((X_test,  y_test), f)\n\nimport argparse\n_parser
+          = argparse.ArgumentParser(prog=''Data preprocessing'', description='''')\n_parser.add_argument(\"--data-path\",
+          dest=\"data_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parsed_args
+          = vars(_parser.parse_args())\n\n_outputs = data_preprocessing(**_parsed_args)\n"],
+          "image": "python:3.10.4-slim-buster"}}, "inputs": [{"name": "data_path"}],
+          "name": "Data preprocessing"}', pipelines.kubeflow.org/component_ref: '{}',
+        pipelines.kubeflow.org/arguments.parameters: '{"data_path": "/Users/user/Documents/code/lightweight_component"}'}
+    volumes:
+    - name: persistent-volume-claim
+      persistentVolumeClaim: {claimName: '{{inputs.parameters.persistent-volume-claim-name}}'}
+  - name: dibetes-pipeline-lightweight
+    dag:
+      tasks:
+      - name: data-loading
+        template: data-loading
+        dependencies: [persistent-volume-claim]
+        arguments:
+          parameters:
+          - {name: persistent-volume-claim-name, value: '{{tasks.persistent-volume-claim.outputs.parameters.persistent-volume-claim-name}}'}
+      - name: data-preprocessing
+        template: data-preprocessing
+        dependencies: [data-loading, persistent-volume-claim]
+        arguments:
+          parameters:
+          - {name: persistent-volume-claim-name, value: '{{tasks.persistent-volume-claim.outputs.parameters.persistent-volume-claim-name}}'}
+      - name: model-evaluation
+        template: model-evaluation
+        dependencies: [model-testing, persistent-volume-claim]
+        arguments:
+          parameters:
+          - {name: persistent-volume-claim-name, value: '{{tasks.persistent-volume-claim.outputs.parameters.persistent-volume-claim-name}}'}
+      - name: model-testing
+        template: model-testing
+        dependencies: [model-training, persistent-volume-claim]
+        arguments:
+          parameters:
+          - {name: persistent-volume-claim-name, value: '{{tasks.persistent-volume-claim.outputs.parameters.persistent-volume-claim-name}}'}
+      - name: model-training
+        template: model-training
+        dependencies: [data-preprocessing, persistent-volume-claim]
+        arguments:
+          parameters:
+          - {name: persistent-volume-claim-name, value: '{{tasks.persistent-volume-claim.outputs.parameters.persistent-volume-claim-name}}'}
+      - {name: persistent-volume-claim, template: persistent-volume-claim}
+  - name: model-evaluation
+    container:
+      args: [--data-path, /Users/user/Documents/code/lightweight_component]
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'pandas' 'sklearn' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install
+        --quiet --no-warn-script-location 'pandas' 'sklearn' --user) && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def model_evaluation(data_path):
+
+            import numpy as np
+            import pickle
+            from sklearn.metrics import classification_report, confusion_matrix
+            #loading the test data
+            with open(f'{data_path}/test_data.pkl', 'rb') as f:
+                test_data = pickle.load(f)
+            #Separate the X_test from y_test.
+                X_test, y_test = test_data
+
+            with open(f'{data_path}/y_pred_lr.pkl', 'rb') as f:
+                 y_pred_lr = pickle.load(f)
+
+            with open(f'{data_path}/y_pred_svm.pkl', 'rb') as f:
+                 y_pred_svm = pickle.load(f)
+
+            with open(f'{data_path}/y_pred_knn.pkl', 'rb') as f:
+                 y_pred_knn = pickle.load(f)
+
+            class_report_lr = classification_report(y_test, y_pred_lr)
+            class_report_svm = classification_report(y_test, y_pred_svm)
+            class_report_knn = classification_report(y_test, y_pred_knn)
+
+            print(f'Classification report for the logistic regression model: {class_report_lr}')
+
+            print(f'Classification report for the support vector machine model: {class_report_svm}')
+
+            print(f'Classification report for the k-nearest neighbor model: {class_report_knn}')
+
+            confusion_matrix_lr = confusion_matrix(y_test, y_pred_lr)
+            confusion_matrix_svm = confusion_matrix(y_test, y_pred_svm)
+            confusion_matrix_knn = confusion_matrix(y_test, y_pred_knn)
+
+            print(f'Confusion matrix for the logistic regression model: {confusion_matrix_lr}')
+
+            print(f'Confusion matrix for the support vector machine model: {confusion_matrix_svm}')
+
+            print(f'Confusion matrix for the k-nearest neighbor model: {confusion_matrix_knn}')
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Model evaluation', description='')
+        _parser.add_argument("--data-path", dest="data_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = model_evaluation(**_parsed_args)
+      image: python:3.10.4-slim-buster
+      volumeMounts:
+      - {mountPath: /Users/user/Documents/code/lightweight_component, name: persistent-volume-claim}
+    inputs:
+      parameters:
+      - {name: persistent-volume-claim-name}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--data-path", {"inputValue": "data_path"}], "command": ["sh",
+          "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+          ''pandas'' ''sklearn'' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip
+          install --quiet --no-warn-script-location ''pandas'' ''sklearn'' --user)
+          && \"$0\" \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf \"%s\" \"$0\"
+          > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n", "def model_evaluation(data_path):\n\n    import
+          numpy as np\n    import pickle\n    from sklearn.metrics import classification_report,
+          confusion_matrix\n    #loading the test data\n    with open(f''{data_path}/test_data.pkl'',
+          ''rb'') as f:\n        test_data = pickle.load(f)\n    #Separate the X_test
+          from y_test.\n        X_test, y_test = test_data\n\n    with open(f''{data_path}/y_pred_lr.pkl'',
+          ''rb'') as f:\n         y_pred_lr = pickle.load(f)\n\n    with open(f''{data_path}/y_pred_svm.pkl'',
+          ''rb'') as f:\n         y_pred_svm = pickle.load(f)\n\n    with open(f''{data_path}/y_pred_knn.pkl'',
+          ''rb'') as f:\n         y_pred_knn = pickle.load(f)\n\n    class_report_lr
+          = classification_report(y_test, y_pred_lr)\n    class_report_svm = classification_report(y_test,
+          y_pred_svm)\n    class_report_knn = classification_report(y_test, y_pred_knn)\n\n    print(f''Classification
+          report for the logistic regression model: {class_report_lr}'')\n\n    print(f''Classification
+          report for the support vector machine model: {class_report_svm}'')\n\n    print(f''Classification
+          report for the k-nearest neighbor model: {class_report_knn}'')\n\n    confusion_matrix_lr
+          = confusion_matrix(y_test, y_pred_lr)\n    confusion_matrix_svm = confusion_matrix(y_test,
+          y_pred_svm)\n    confusion_matrix_knn = confusion_matrix(y_test, y_pred_knn)\n\n    print(f''Confusion
+          matrix for the logistic regression model: {confusion_matrix_lr}'')\n\n    print(f''Confusion
+          matrix for the support vector machine model: {confusion_matrix_svm}'')\n\n    print(f''Confusion
+          matrix for the k-nearest neighbor model: {confusion_matrix_knn}'')\n\nimport
+          argparse\n_parser = argparse.ArgumentParser(prog=''Model evaluation'', description='''')\n_parser.add_argument(\"--data-path\",
+          dest=\"data_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parsed_args
+          = vars(_parser.parse_args())\n\n_outputs = model_evaluation(**_parsed_args)\n"],
+          "image": "python:3.10.4-slim-buster"}}, "inputs": [{"name": "data_path"}],
+          "name": "Model evaluation"}', pipelines.kubeflow.org/component_ref: '{}',
+        pipelines.kubeflow.org/arguments.parameters: '{"data_path": "/Users/user/Documents/code/lightweight_component"}'}
+    volumes:
+    - name: persistent-volume-claim
+      persistentVolumeClaim: {claimName: '{{inputs.parameters.persistent-volume-claim-name}}'}
+  - name: model-testing
+    container:
+      args: [--data-path, /Users/user/Documents/code/lightweight_component]
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'pandas' 'sklearn' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install
+        --quiet --no-warn-script-location 'pandas' 'sklearn' --user) && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def model_testing(data_path):
+
+            import numpy as np
+            import pickle
+            import argparse
+            import os
+            #loading the test data
+
+            with open(f'{data_path}/test_data.pkl', 'rb') as f:
+                test_data = pickle.load(f)
+
+            #Separate the X_test from y_test.
+                X_test, y_test = test_data
+
+            with open(f'{data_path}/lr_model.pkl', 'rb') as f:
+                log_reg_model = pickle.load(f)
+
+            with open(f'{data_path}/svm_model.pkl', 'rb') as f:
+                svm_clas_model = pickle.load(f)
+
+            with open(f'{data_path}/knn_model.pkl', 'rb') as f:
+                knn_clas_model = pickle.load(f)
+
+            y_pred_lr = log_reg_model.predict(X_test)
+            y_pred_svm = svm_clas_model.predict(X_test)
+            y_pred_knn = knn_clas_model.predict(X_test)
+
+            with open(f'{data_path}/y_pred_lr.pkl', 'wb') as f:
+                pickle.dump(y_pred_lr, f)
+
+            with open(f'{data_path}/y_pred_svm.pkl', 'wb') as f:
+                pickle.dump(y_pred_svm, f)
+
+            with open(f'{data_path}/y_pred_knn.pkl', 'wb') as f:
+                pickle.dump(y_pred_knn, f)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Model testing', description='')
+        _parser.add_argument("--data-path", dest="data_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = model_testing(**_parsed_args)
+      image: python:3.10.4-slim-buster
+      volumeMounts:
+      - {mountPath: /Users/user/Documents/code/lightweight_component, name: persistent-volume-claim}
+    inputs:
+      parameters:
+      - {name: persistent-volume-claim-name}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--data-path", {"inputValue": "data_path"}], "command": ["sh",
+          "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+          ''pandas'' ''sklearn'' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip
+          install --quiet --no-warn-script-location ''pandas'' ''sklearn'' --user)
+          && \"$0\" \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf \"%s\" \"$0\"
+          > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n", "def model_testing(data_path):\n\n    import
+          numpy as np\n    import pickle\n    import argparse\n    import os\n    #loading
+          the test data\n\n    with open(f''{data_path}/test_data.pkl'', ''rb'') as
+          f:\n        test_data = pickle.load(f)\n\n    #Separate the X_test from
+          y_test.\n        X_test, y_test = test_data\n\n    with open(f''{data_path}/lr_model.pkl'',
+          ''rb'') as f:\n        log_reg_model = pickle.load(f)\n\n    with open(f''{data_path}/svm_model.pkl'',
+          ''rb'') as f:\n        svm_clas_model = pickle.load(f)\n\n    with open(f''{data_path}/knn_model.pkl'',
+          ''rb'') as f:\n        knn_clas_model = pickle.load(f)\n\n    y_pred_lr
+          = log_reg_model.predict(X_test)\n    y_pred_svm = svm_clas_model.predict(X_test)\n    y_pred_knn
+          = knn_clas_model.predict(X_test)\n\n    with open(f''{data_path}/y_pred_lr.pkl'',
+          ''wb'') as f:\n        pickle.dump(y_pred_lr, f)\n\n    with open(f''{data_path}/y_pred_svm.pkl'',
+          ''wb'') as f:\n        pickle.dump(y_pred_svm, f)\n\n    with open(f''{data_path}/y_pred_knn.pkl'',
+          ''wb'') as f:\n        pickle.dump(y_pred_knn, f)\n\nimport argparse\n_parser
+          = argparse.ArgumentParser(prog=''Model testing'', description='''')\n_parser.add_argument(\"--data-path\",
+          dest=\"data_path\", type=str, required=True, default=argparse.SUPPRESS)\n_parsed_args
+          = vars(_parser.parse_args())\n\n_outputs = model_testing(**_parsed_args)\n"],
+          "image": "python:3.10.4-slim-buster"}}, "inputs": [{"name": "data_path"}],
+          "name": "Model testing"}', pipelines.kubeflow.org/component_ref: '{}', pipelines.kubeflow.org/arguments.parameters: '{"data_path":
+          "/Users/user/Documents/code/lightweight_component"}'}
+    volumes:
+    - name: persistent-volume-claim
+      persistentVolumeClaim: {claimName: '{{inputs.parameters.persistent-volume-claim-name}}'}
+  - name: model-training
+    container:
+      args: [--data-path, /Users/user/Documents/code/lightweight_component]
+      command:
+      - sh
+      - -c
+      - (PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+        'pandas' 'sklearn' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install
+        --quiet --no-warn-script-location 'pandas' 'sklearn' --user) && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp)
+        printf "%s" "$0" > "$program_path"
+        python3 -u "$program_path" "$@"
+      - |
+        def model_training(data_path):
+
+            import numpy as np
+            import pickle
+            import argparse
+            import os
+            from sklearn.svm import SVC
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.neighbors import KNeighborsClassifier
+
+            #loading the train data
+            with open(f'{data_path}/train_data.pkl', 'rb') as f:
+                train_data = pickle.load(f)
+            #Separate the X_train from y_train.
+                X_train, y_train = train_data
+
+                log_regres = LogisticRegression(max_iter=10000)
+                lr_model = log_regres.fit(X_train, y_train)
+
+                svm = SVC(kernel ="linear", random_state=2)
+                svm_model = svm.fit(X_train, y_train)
+
+                knn = KNeighborsClassifier(n_neighbors=7)
+                knn_model = knn.fit(X_train, y_train)
+
+            with open(f'{data_path}/lr_model.pkl', 'wb') as f:
+                pickle.dump(lr_model, f)
+
+            with open(f'{data_path}/svm_model.pkl', 'wb') as f:
+                pickle.dump(svm_model, f)
+
+            with open(f'{data_path}/knn_model.pkl', 'wb') as f:
+                pickle.dump(knn_model, f)
+
+        import argparse
+        _parser = argparse.ArgumentParser(prog='Model training', description='')
+        _parser.add_argument("--data-path", dest="data_path", type=str, required=True, default=argparse.SUPPRESS)
+        _parsed_args = vars(_parser.parse_args())
+
+        _outputs = model_training(**_parsed_args)
+      image: python:3.10.4-slim-buster
+      volumeMounts:
+      - {mountPath: /Users/user/Documents/code/lightweight_component, name: persistent-volume-claim}
+    inputs:
+      parameters:
+      - {name: persistent-volume-claim-name}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+      annotations: {pipelines.kubeflow.org/component_spec: '{"implementation": {"container":
+          {"args": ["--data-path", {"inputValue": "data_path"}], "command": ["sh",
+          "-c", "(PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet --no-warn-script-location
+          ''pandas'' ''sklearn'' || PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip
+          install --quiet --no-warn-script-location ''pandas'' ''sklearn'' --user)
+          && \"$0\" \"$@\"", "sh", "-ec", "program_path=$(mktemp)\nprintf \"%s\" \"$0\"
+          > \"$program_path\"\npython3 -u \"$program_path\" \"$@\"\n", "def model_training(data_path):\n\n    import
+          numpy as np\n    import pickle\n    import argparse\n    import os\n    from
+          sklearn.svm import SVC\n    from sklearn.linear_model import LogisticRegression\n    from
+          sklearn.neighbors import KNeighborsClassifier\n\n    #loading the train
+          data\n    with open(f''{data_path}/train_data.pkl'', ''rb'') as f:\n        train_data
+          = pickle.load(f)\n    #Separate the X_train from y_train.\n        X_train,
+          y_train = train_data\n\n        log_regres = LogisticRegression(max_iter=10000)\n        lr_model
+          = log_regres.fit(X_train, y_train)\n\n        svm = SVC(kernel =\"linear\",
+          random_state=2)\n        svm_model = svm.fit(X_train, y_train)\n\n        knn
+          = KNeighborsClassifier(n_neighbors=7)\n        knn_model = knn.fit(X_train,
+          y_train)\n\n    with open(f''{data_path}/lr_model.pkl'', ''wb'') as f:\n        pickle.dump(lr_model,
+          f)\n\n    with open(f''{data_path}/svm_model.pkl'', ''wb'') as f:\n        pickle.dump(svm_model,
+          f)\n\n    with open(f''{data_path}/knn_model.pkl'', ''wb'') as f:\n        pickle.dump(knn_model,
+          f)\n\nimport argparse\n_parser = argparse.ArgumentParser(prog=''Model training'',
+          description='''')\n_parser.add_argument(\"--data-path\", dest=\"data_path\",
+          type=str, required=True, default=argparse.SUPPRESS)\n_parsed_args = vars(_parser.parse_args())\n\n_outputs
+          = model_training(**_parsed_args)\n"], "image": "python:3.10.4-slim-buster"}},
+          "inputs": [{"name": "data_path"}], "name": "Model training"}', pipelines.kubeflow.org/component_ref: '{}',
+        pipelines.kubeflow.org/arguments.parameters: '{"data_path": "/Users/user/Documents/code/lightweight_component"}'}
+    volumes:
+    - name: persistent-volume-claim
+      persistentVolumeClaim: {claimName: '{{inputs.parameters.persistent-volume-claim-name}}'}
+  - name: persistent-volume-claim
+    resource:
+      action: create
+      manifest: |
+        apiVersion: v1
+        kind: PersistentVolumeClaim
+        metadata:
+          name: '{{workflow.name}}-data-volume'
+        spec:
+          accessModes:
+          - ReadWriteOnce
+          resources:
+            requests:
+              storage: 2Gi
+    outputs:
+      parameters:
+      - name: persistent-volume-claim-manifest
+        valueFrom: {jsonPath: '{}'}
+      - name: persistent-volume-claim-name
+        valueFrom: {jsonPath: '{.metadata.name}'}
+      - name: persistent-volume-claim-size
+        valueFrom: {jsonPath: '{.status.capacity.storage}'}
+    metadata:
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.14
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/enable_caching: "true"
+  arguments:
+    parameters: []
+  serviceAccountName: pipeline-runner
